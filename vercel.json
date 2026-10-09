@@ -1,0 +1,29 @@
+{
+    "version": 2,
+    "framework": null,
+    "outputDirectory": "public",
+    "functions": {
+        "api/index.php": {
+            "runtime": "vercel-php@0.7.3"
+        }
+    },
+    "env": {
+        "PHP_VERSION": "8.2",
+        "APP_ENV": "production",
+        "APP_DEBUG": "true"
+    },
+    "routes": [
+        {
+            "src": "/build/(.*)",
+            "dest": "/build/$1"
+        },
+        {
+            "src": "/(css|js|images|favicon.ico)/(.*)",
+            "dest": "/$1/$2"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "/api/index.php"
+        }
+    ]
+}
