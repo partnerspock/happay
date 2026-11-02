@@ -25,10 +25,12 @@ class InventoryController extends Controller
         $allowedWarehouseIds = $admin->getAllowedWarehouseIds();
 
         if (empty($allowedWarehouseIds)) {
-            $inventories = collect()->paginate(15);
+            $inventories = InventoryMaster::whereRaw('1 = 0')->paginate(15);
             $warehouses = collect();
             $userWarehouses = collect();
-            $items = ItemMaster::where('item_status', 'available')->orderBy('item_name', 'asc')->get();
+            $items = ItemMaster::where('item_status', 'available')
+                ->orderBy('item_name', 'asc')
+                ->get();
 
             return view('inventory.index', compact(
                 'inventories',
@@ -42,21 +44,23 @@ class InventoryController extends Controller
             ));
         }
 
-        $query = InventoryMaster::with(['warehouse.region', 'creator', 'items'])
-            ->whereIn('warehouse_id', $allowedWarehouseIds);
+        $query = InventoryMaster::with([
+            'warehouse.region',
+            'creator',
+            'items',
+        ])->whereIn('warehouse_id', $allowedWarehouseIds);
 
         if (!empty($search)) {
             $query->where(function ($q) use ($search) {
                 $q->where('inventory_id', 'iLIKE', "%{$search}%")
-                  ->orWhere('inventory_sender_name', 'iLIKE', "%{$search}%")
-                  ->orWhere('inventory_sender_recipient', 'iLIKE', "%{$search}%");
+                    ->orWhere('inventory_sender_name', 'iLIKE', "%{$search}%")
+                    ->orWhere('inventory_sender_recipient', 'iLIKE', "%{$search}%");
             });
         }
 
-        if (!empty($selectedWarehouse)) {
-            if (in_array($selectedWarehouse, $allowedWarehouseIds)) {
-                $query->where('warehouse_id', $selectedWarehouse);
-            }
+        if (!empty($selectedWarehouse)
+            && in_array($selectedWarehouse, $allowedWarehouseIds)) {
+            $query->where('warehouse_id', $selectedWarehouse);
         }
 
         if (!empty($selectedType)) {
@@ -67,9 +71,11 @@ class InventoryController extends Controller
             $query->where('inventory_status', $selectedStatus);
         }
 
-        $inventories = $query->orderBy('id', 'desc')->paginate(15)->withQueryString();
+        $inventories = $query
+            ->orderBy('id', 'desc')
+            ->paginate(15)
+            ->withQueryString();
 
-        // Warehouse untuk filter dan modal (hanya yang diizinkan untuk admin tersebut)
         $warehouses = WarehouseMaster::with('region')
             ->whereIn('id', $allowedWarehouseIds)
             ->where('warehouse_status', 'active')
@@ -78,7 +84,9 @@ class InventoryController extends Controller
 
         $userWarehouses = $warehouses;
 
-        $items = ItemMaster::where('item_status', 'available')->orderBy('item_name', 'asc')->get();
+        $items = ItemMaster::where('item_status', 'available')
+            ->orderBy('item_name', 'asc')
+            ->get();
 
         return view('inventory.index', compact(
             'inventories',
@@ -104,7 +112,8 @@ class InventoryController extends Controller
             'items' => 'required|array|min:1',
             'items.*.item_id' => 'required|exists:item_master,id',
             'items.*.inventory_qty_sent' => 'required|integer|min:1',
-            'inventory_image' => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
+            'inventory_image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:10240',
+            'inventory_video' => 'nullable|mimes:mp4,mov,avi,webm,mkv|max:51200',
             'inventory_notes' => 'nullable|string',
         ]);
 
@@ -112,12 +121,15 @@ class InventoryController extends Controller
             $admin = Auth::user();
             $allowedWarehouseIds = $admin->getAllowedWarehouseIds();
 
-            // Validasi keamanan hak akses warehouse
-            if (!in_array($request->warehouse_id, $allowedWarehouseIds)) {
-                return redirect()->back()->with('error', 'Unauthorized action. Anda tidak memiliki akses ke warehouse ini.');
+            if (!in_array((int) $request->warehouse_id, $allowedWarehouseIds)) {
+                return redirect()->back()->with(
+                    'error',
+                    'Anda tidak memiliki akses ke warehouse ini.'
+                );
             }
 
-            $warehouse = WarehouseMaster::with('region')->findOrFail($request->warehouse_id);
+            $warehouse = WarehouseMaster::with('region')
+                ->findOrFail($request->warehouse_id);
 
             $typeCode = $request->inventory_type === 'inbound' ? 'IN' : 'OUT';
             $regionAlias = $warehouse->region->region_alias ?? 'GEN';
@@ -129,25 +141,45 @@ class InventoryController extends Controller
                 ->first();
 
             $nextNumber = 1;
-            if ($latestInventory && preg_match('/-(\d{3})$/', $latestInventory->inventory_id, $matches)) {
-                $nextNumber = (int)$matches[1] + 1;
+
+            if ($latestInventory
+                && preg_match('/-(\d{3})$/', $latestInventory->inventory_id, $matches)) {
+                $nextNumber = (int) $matches[1] + 1;
             } else {
-                $count = InventoryMaster::where('warehouse_id', $warehouse->id)
+                $nextNumber = InventoryMaster::where('warehouse_id', $warehouse->id)
                     ->where('inventory_type', $request->inventory_type)
-                    ->count();
-                $nextNumber = $count + 1;
+                    ->count() + 1;
             }
 
-            $inventoryId = sprintf('INM-%s-%s-%03d', $typeCode, $regionAlias, $nextNumber);
+            $inventoryId = sprintf(
+                'INM-%s-%s-%03d',
+                $typeCode,
+                $regionAlias,
+                $nextNumber
+            );
 
             while (InventoryMaster::where('inventory_id', $inventoryId)->exists()) {
                 $nextNumber++;
-                $inventoryId = sprintf('INM-%s-%s-%03d', $typeCode, $regionAlias, $nextNumber);
+
+                $inventoryId = sprintf(
+                    'INM-%s-%s-%03d',
+                    $typeCode,
+                    $regionAlias,
+                    $nextNumber
+                );
             }
 
             $imagePath = null;
+            $videoPath = null;
+
             if ($request->hasFile('inventory_image')) {
-                $imagePath = $request->file('inventory_image')->store('inventory_proofs', 'public');
+                $imagePath = $request->file('inventory_image')
+                    ->store('inventory_proofs', 'public');
+            }
+
+            if ($request->hasFile('inventory_video')) {
+                $videoPath = $request->file('inventory_video')
+                    ->store('inventory_proofs', 'public');
             }
 
             $inventory = InventoryMaster::create([
@@ -160,6 +192,7 @@ class InventoryController extends Controller
                 'inventory_sender_logistic_info' => $request->inventory_sender_logistic_info,
                 'inventory_sender_recipient' => $request->inventory_sender_recipient,
                 'inventory_sender_image' => $imagePath,
+                'inventory_sender_video' => $videoPath,
                 'inventory_notes' => $request->inventory_notes,
                 'created_by' => Auth::id(),
             ]);
@@ -179,57 +212,121 @@ class InventoryController extends Controller
                 ]);
             }
 
-            return redirect()->route('inventory.index')->with('success', "Dokumen {$inventoryId} berhasil dibuat.");
+            return redirect()->route('inventory.index')->with(
+                'success',
+                "Dokumen {$inventoryId} berhasil dibuat."
+            );
         });
     }
 
     public function updateStatus(Request $request, $id)
     {
         $request->validate([
-            'inventory_status' => 'required|in:created,arrived,completed',
+            'inventory_status' => 'required|in:arrived,completed',
         ]);
 
-        return DB::transaction(function () use ($id, $request) {
-            $admin = Auth::user();
-            $allowedWarehouseIds = $admin->getAllowedWarehouseIds();
+        $admin = Auth::user();
+        $allowedWarehouseIds = $admin->getAllowedWarehouseIds();
 
-            $inventory = InventoryMaster::with('items')->where('id', $id)->lockForUpdate()->firstOrFail();
+        return DB::transaction(function () use (
+            $request,
+            $id,
+            $allowedWarehouseIds
+        ) {
+            $inventory = InventoryMaster::with('items')
+                ->where('id', $id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
             if (!in_array($inventory->warehouse_id, $allowedWarehouseIds)) {
-                return redirect()->back()->with('error', 'Unauthorized action.');
+                abort(403, 'Unauthorized action.');
             }
-
-            $targetStatus = $request->inventory_status;
 
             if ($inventory->inventory_status === 'completed') {
-                return redirect()->back()->with('error', 'Inventory sudah berstatus Completed.');
+                return redirect()->back()->with(
+                    'error',
+                    'Inventory sudah berstatus Completed.'
+                );
             }
 
-            if ($targetStatus === 'arrived') {
+            /*
+             * ARRIVED
+             * Simpan qty aktual setiap item ke inventory_qty_change.
+             */
+            if ($request->inventory_status === 'arrived') {
+                if ($inventory->inventory_status !== 'created') {
+                    return redirect()->back()->with(
+                        'error',
+                        'Inventory ini tidak bisa diproses menjadi Arrived.'
+                    );
+                }
+
+                $validated = $request->validate([
+                    'items' => 'required|array',
+                    'items.*.inventory_qty_change' => 'required|integer|min:0',
+                ]);
+
+                if (count($validated['items']) !== $inventory->items->count()) {
+                    return redirect()->back()->with(
+                        'error',
+                        'Qty untuk semua item wajib diisi.'
+                    );
+                }
+
+                foreach ($inventory->items as $invItem) {
+                    $itemInput = $validated['items'][$invItem->id] ?? null;
+
+                    if ($itemInput === null) {
+                        return redirect()->back()->with(
+                            'error',
+                            'Data qty item tidak lengkap.'
+                        );
+                    }
+
+                    $invItem->update([
+                        'inventory_qty_change' => (int) $itemInput['inventory_qty_change'],
+                    ]);
+                }
+
                 $inventory->update([
                     'inventory_status' => 'arrived',
                     'inventory_date_arrived' => now(),
                 ]);
 
-                return redirect()->back()->with('success', 'Status inventory berhasil diperbarui menjadi Arrived.');
+                return redirect()->back()->with(
+                    'success',
+                    'Qty aktual tersimpan. Status inventory menjadi Arrived.'
+                );
             }
 
-            if ($targetStatus === 'completed') {
-                $inventory->update([
-                    'inventory_status' => 'completed',
-                    'inventory_date_completed' => now(),
-                ]);
+            /*
+             * COMPLETE
+             * Push stok menggunakan qty aktual dari inventory_qty_change.
+             */
+            if ($request->inventory_status === 'completed') {
+                if ($inventory->inventory_status !== 'arrived') {
+                    return redirect()->back()->with(
+                        'error',
+                        'Inventory harus berstatus Arrived sebelum Complete.'
+                    );
+                }
 
                 foreach ($inventory->items as $invItem) {
                     $itemMaster = ItemMaster::findOrFail($invItem->item_id);
 
-                    $stock = StockMaster::where('warehouse_id', $inventory->warehouse_id)
+                    $stock = StockMaster::where(
+                        'warehouse_id',
+                        $inventory->warehouse_id
+                    )
                         ->where('item_id', $invItem->item_id)
                         ->lockForUpdate()
                         ->first();
 
-                    $historyBefore = $stock ? (int) $stock->stock_now : 0;
-                    $historyChange = (int) $invItem->inventory_qty_sent;
+                    $historyBefore = $stock
+                        ? (int) $stock->stock_now
+                        : 0;
+
+                    $historyChange = (int) $invItem->inventory_qty_change;
 
                     if ($inventory->inventory_type === 'inbound') {
                         $historyNow = $historyBefore + $historyChange;
@@ -252,10 +349,6 @@ class InventoryController extends Controller
                         ]);
                     }
 
-                    $invItem->update([
-                        'inventory_qty_change' => $historyChange,
-                    ]);
-
                     StockHistory::create([
                         'warehouse_id' => $inventory->warehouse_id,
                         'item_id' => $invItem->item_id,
@@ -263,14 +356,23 @@ class InventoryController extends Controller
                         'history_change' => $historyChange,
                         'history_now' => $historyNow,
                         'history_change__type' => $changeType,
-                        'history_change_description' => "inventory_" . $inventory->inventory_type . " ({$inventory->inventory_id})",
+                        'history_change_description' =>
+                            "inventory_{$inventory->inventory_type} ({$inventory->inventory_id})",
                     ]);
                 }
 
-                return redirect()->back()->with('success', 'Status inventory Completed & stok telah di-push.');
+                $inventory->update([
+                    'inventory_status' => 'completed',
+                    'inventory_date_completed' => now(),
+                ]);
+
+                return redirect()->back()->with(
+                    'success',
+                    'Inventory Completed. Stok diperbarui berdasarkan qty aktual.'
+                );
             }
 
-            return redirect()->back()->with('info', 'Tidak ada perubahan status.');
+            return redirect()->back();
         });
     }
 
@@ -279,7 +381,11 @@ class InventoryController extends Controller
         $admin = Auth::user();
         $allowedWarehouseIds = $admin->getAllowedWarehouseIds();
 
-        $inventory = InventoryMaster::with(['warehouse.region', 'creator', 'items.item'])->findOrFail($id);
+        $inventory = InventoryMaster::with([
+            'warehouse.region',
+            'creator',
+            'items.item',
+        ])->findOrFail($id);
 
         if (!in_array($inventory->warehouse_id, $allowedWarehouseIds)) {
             abort(403, 'Unauthorized action.');

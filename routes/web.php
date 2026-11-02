@@ -33,8 +33,8 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/pos', [PosController::class, 'store'])->name('pos.store');
     Route::patch('/pos/{id}/status', [PosController::class, 'updateStatus'])->name('pos.update-status');
     Route::get('/pos/{id}/print', [PosController::class, 'print'])->name('pos.print');
-    Route::get('/api/pos-stocks', [PosController::class, 'getStockItems'])->name('api.pos-stocks');
     Route::get('/pos/stocks', [PosController::class, 'getStockItems'])->name('pos.stocks');
+    Route::get('/api/pos-stocks', [PosController::class, 'getStockItems'])->name('api.pos-stocks');
 
     // Master Items
     Route::get('/items', [ItemController::class, 'index'])->name('items.index');
@@ -44,11 +44,11 @@ Route::middleware(['auth'])->group(function () {
     // Master Warehouse & Stock
     Route::get('/warehouse', [WarehouseController::class, 'index'])->name('warehouse.index');
     Route::get('/warehouse/stock', [WarehouseController::class, 'stock'])->name('warehouse.stock');
-    Route::get('/api/warehouse-stocks', [StockTransferController::class, 'getWarehouseStocks'])->name('api.warehouse-stocks');
     Route::get('/warehouse/stock-history', [WarehouseController::class, 'stockHistory'])->name('warehouse.stock-history');
     Route::get('/warehouse/stock/{warehouse_id}/item/{item_id}/history', [WarehouseController::class, 'itemStockHistory'])->name('warehouse.stock.item-history');
     Route::post('/warehouse', [WarehouseController::class, 'store'])->name('warehouse.store');
     Route::put('/warehouse/{id}', [WarehouseController::class, 'update'])->name('warehouse.update');
+    Route::get('/api/warehouse-stocks', [StockTransferController::class, 'getWarehouseStocks'])->name('api.warehouse-stocks');
 
     // Inventory
     Route::get('/inventory', [InventoryController::class, 'index'])->name('inventory.index');

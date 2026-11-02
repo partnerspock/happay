@@ -69,7 +69,7 @@ class PosController extends Controller
         ));
     }
 
-    public function create()
+    public function create(Request $request)
     {
         $admin = Auth::user();
         $allowedWarehouseIds = $admin->getAllowedWarehouseIds();
@@ -82,7 +82,20 @@ class PosController extends Controller
 
         $defaultWarehouseId = $admin->getDefaultWarehouseId();
 
-        return view('pos.create', compact('warehouses', 'defaultWarehouseId'));
+        // TAMBAHKAN BLOK INI: Mengambil data transaksi draft untuk dilanjutkan
+        $continueTransaction = null;
+        if ($request->has('continue')) {
+            $continueTransaction = PosTransactionMaster::with(['items.item', 'warehouse'])
+                ->whereIn('warehouse_id', $allowedWarehouseIds)
+                ->find($request->continue);
+
+            // Jika transaksi draft ditemukan, otomatis set default warehouse-nya sesuai warehouse transaksi tersebut
+            if ($continueTransaction) {
+                $defaultWarehouseId = $continueTransaction->warehouse_id;
+            }
+        }
+
+        return view('pos.create', compact('warehouses', 'defaultWarehouseId', 'continueTransaction'));
     }
 
     public function getStockItems(Request $request)
